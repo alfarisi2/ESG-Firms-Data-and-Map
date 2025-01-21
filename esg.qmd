@@ -1,0 +1,322 @@
+---
+title: "ESG Firms: Data and Map"
+author: "Muhammad Farid Salman Alfarisi RM"
+date: last-modified
+format: 
+  html:
+    toc: TRUE
+    toc-title: "Outline"
+    toc-location: left
+    toc-depth: 2
+    number-sections: FALSE
+    fig-width: 7.49
+    fig-height: 5.5
+    css: styles.css
+editor: visual
+code-fold: TRUE
+editor_options: 
+  chunk_output_type: console
+---
+
+## Introduction
+
+The rate of attention towards sustainability is rising. People are more likely to frame everything for the future of our planet. People in business are the locomotive for this massive movement. Therefore, many frameworks have been established to measure how far companies run their activities sustainably. One specific measurement is exciting, ESG. This simple article wants to show some data on ESG-related firms.
+
+This article uses a dataset called ESGFiDa.1.2.1.xlsx provided by Andreas Dimmelmeier & Xinke (2023) on [OSF](https://osf.io/b7zgd/). It contains information about ESG firms based on a thorough research process. As for the map, the article’s author supplies another dataset containing coordinates for cities where the firms are located.
+
+All visualizations are made using R. Anyone interested in reproducing the codes, click on *\>Code* or check the author’s [Github](https://github.com/alfarisi2).
+
+```{r}
+#| label: load library and file
+#| message: false
+#| warning: false
+library(readxl)
+library(plotly)
+library(gt)
+library(htmltools)
+library(leaflet)
+library(sf)
+library(scales)
+library(tidyverse)
+
+esg <- read_excel("ESGFiDa.1.2.1.xlsx", 
+                  sheet = "ESG information firms")
+
+esg <- esg |> 
+  mutate(Name_ESG = factor(Name_ESG),
+         Type = factor(Type),
+         Country = factor(Country),
+         Continent = factor(Continent),
+         Year_Founded = as.numeric(Year_Founded),
+         Headquarters = factor(Headquarters))
+
+
+```
+
+## Type of ESG Firms
+
+There are four categories of ESG firms defined by the dataset. The **SRI** category forms the majority, followed by **finance**, **model**, and **other**. One may ask, what is the definition of those categories? Here is what the dataset says:
+
+::: callout-note
+SRI = Socially Responsible Investment firm, designating "traditional" ESG research that first emerged against the background of the Responsible Investment movement. Observations in this category refer to "pure-play" ESG firms, whose core products are company scores and ratings.
+
+Model = Specialized firms that use models, (large and proprietary) datasets, artificial intelligence, or other technologies to generate ESG data. Firms classified as "Model" distinguish themselves from traditional SRI firms by laying less emphasis on human ESG analysts and instead foregrounding technological systems.
+
+Finance = mainstream financial data providers that generate and aggregate business and financial metrics (e.g. credit risk, profit and loss, indexes).
+
+Other = remaining observations that cannot be sorted into the other categories. Includes professional services firms and consultancies as well as conglomerates with subsidiaries across different sectors.
+:::
+
+```{r}
+#| message: false
+#| warning: false
+esg_type_count <- 
+  esg |> 
+  count(Type, sort = TRUE)
+
+dynamic_colors <- hue_pal()(length(unique(esg_type_count$Type)))
+
+esg_type_count |> 
+  ggplot(aes(x = reorder(Type, n), y = n, fill = Type)) +
+  geom_bar(stat = "identity", color = "black") +
+  geom_text(aes(label = n), hjust = -0.5, size = 4) +
+  theme_minimal() +
+  labs(
+    title = "Type of ESG Firms",
+    x = "Type",
+    y = "Count") + 
+  theme(legend.title = element_blank(),
+        plot.title = element_text(hjust = 0.5),
+        legend.position = "none") +
+  scale_y_continuous(breaks = seq(0, 80, by = 20)) +
+  theme(legend.title = element_blank(),
+        plot.title = element_text(hjust = 0.5)) +
+  coord_flip()
+```
+
+## ESG Firms Based on Country
+
+According to the dataset, the top three countries host ESG firms are the US, China, and the UK. Some countries, such as Singapore, Mexico, Japan, Israel, India, and Austria, have only one firm.
+
+```{r}
+#| message: false
+#| warning: false
+esg_country_count <- esg|> 
+  count(Country, sort = TRUE)
+
+esg_country_count |> 
+  ggplot(aes(x = reorder(Country,n), y = n )) +
+  geom_segment(aes(x = reorder(Country, n), xend = reorder(Country, n), y = 0, yend = n),color = "darkgreen", linewidth = 1) +
+  geom_point(size = 7.5, color = "red") +
+  geom_text(aes(label = n), hjust = 0.5, vjust = 0.4, size = 3.5,
+            color = "white", fontface = "bold") +
+  theme_minimal() +
+  labs(
+    title = "ESG Firms Based on Country",
+    x = "Country",
+    y = "Count") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  coord_flip()
+```
+
+## ESG Firms by Continent
+
+Most of the firms are based in Europe. The chart also shows that any type of ESG firm is still unavailable in Africa.
+
+```{r}
+#| message: false
+#| warning: false
+esg_continent_perc <- 
+  esg |> count(Continent) |> 
+  mutate(percentage = n / sum(n) * 100,
+         Label = paste0(round(percentage, 2), "%"))
+
+esg_continent_perc <- esg_continent_perc |> 
+  mutate(end_angle = cumsum(percentage) * 2 * pi / 100,
+         start_angle = lag(end_angle, default = 0))
+
+esg_continent_perc |> 
+  ggplot(aes(x = 2, y = percentage, fill = Continent)) +
+  geom_bar(stat = "identity", width = 1, color = "white") +
+  coord_polar(theta = "y") +
+  xlim(0.0625, 2.5) + # Adjust the limits to create the donut hole
+  theme_void() +
+  theme(legend.title = element_blank(),
+        legend.position = "right",
+        plot.title = element_text(hjust = 0.5)) +
+  geom_text(aes(label = Label), 
+            position = position_stack(vjust = 0.5), size = 4, color = "white") +
+  labs(title = "Percentage of ESG Firms by Continent") +
+  scale_fill_brewer(palette = "Dark2")
+```
+
+```{r}
+#| eval: false
+#| include: false
+esg_year <- 
+  esg |> 
+  group_by(Year_Founded) |> 
+  summarise(Count = n())
+
+esg_year$by_decade <- floor(esg_year$Year_Founded / 10) * 10
+
+esg_decade <- 
+  esg_year |> 
+  group_by(by_decade) |> 
+  summarise(Num = n())
+
+esg_decade$label <- paste0(esg_decade$by_decade, "\n ", esg_decade$Num)
+
+lineplot <- esg_decade |> 
+  ggplot(aes(by_decade, Num)) +
+  geom_line(color = "#2ca02c", linewidth = 1) +
+  geom_point(size = 2, color = "red") +
+  scale_y_continuous(breaks = c(1:10)) +
+    labs(title = "The Growth of ESG-Related Firms Until 2020s",
+       x = "Period",
+       y = "Number") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5))
+
+lineplot <- ggplotly(lineplot)
+lineplot
+```
+
+## Mapping The Headquarters
+
+The map below shows the location of ESG firms’ headquarters. Click on any cluster to see further information.
+
+```{r}
+#| message: false
+#| warning: false
+city_map <- read_excel("D:/dataset/osf/esgfida/city.xlsx", 
+                   sheet = "Sheet2")
+city_map$City <- factor(city_map$City)
+city_map$id <- 1:nrow(city_map)
+city_map <- city_map |> 
+  select(id, everything())
+
+headquarter <- esg |> count(Headquarters)
+
+city_coordinate <- 
+  city_map |> 
+  group_by(City, Latitude, Longitude) |> 
+  count()
+
+merged_data <- left_join(headquarter, city_coordinate, by=c("Headquarters" = "City"))
+
+merged_data_sf <- st_as_sf(merged_data, coords = c("Longitude", "Latitude"), crs = 4326)
+
+icons <- awesomeIcons(  icon = 'fa-solid fa-map-marker',
+                        iconColor = 'black',
+                        library = 'fa',
+                        markerColor = "red")
+map_title <- "
+<style>
+  .custom-title {
+    color: #34495e;
+    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.5);
+    background-color: rgba(255, 0, 0, 0.5);
+    padding: 6px;
+    font-size: 0.8em;
+    border-radius: 4px;
+    transform: scale(0.5);
+    transition: background-color 0.3s, box-shadow 0.3s;
+}
+.custom-title:hover {
+    background-color: rgba(255, 0, 0, 0.5);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+}
+</style>
+<h2>
+  Location of ESG Firms
+</h2>"
+
+leaflet(merged_data_sf) |> 
+  addTiles() |> 
+  addAwesomeMarkers(icon = icons,
+      #label = ~merged_data$Headquarters,
+    #labelOptions = labelOptions(noHide = FALSE,
+    #                           direction = "top",
+    #                          textsize = "10px"),
+    clusterOptions = markerClusterOptions(),
+    popup = ~paste("City:", merged_data$Headquarters,
+                   "- No of ESG Firms:", merged_data$n.x)) |> 
+  addControl(html = map_title, position = "bottomleft", className = "custom-title") |> 
+  setView(lng = mean(merged_data_sf$geometry[[1]][1]),
+          lat = mean(merged_data_sf$geometry[[1]][1]), zoom = 1)
+```
+
+## List of ESG Firms
+
+The table below provides a complete list of ESG Firms.
+
+```{r}
+#| message: false
+#| warning: false
+esg_arr <- esg |> 
+  select(Name_ESG, Headquarters, Year_Founded) |> 
+  arrange(Year_Founded)
+
+No <- 1:143
+
+esg_arr <- cbind(No, esg_arr)
+
+
+gt_table <- gt(esg_arr) |> 
+  tab_header(title = md("**ESG-Related Firms**"),
+             subtitle = md("*A List From 1846 To 2021*")) |> 
+  tab_style(style = list(cell_fill(color = "white"),
+                         cell_text(color = "black")),
+            locations = cells_title(groups = c("title", "subtitle"))) |> 
+  tab_style(style = list(cell_fill(color = "white"),
+                         cell_text(color = "black", weight = "bold", style = "italic")),
+            locations = cells_column_labels(everything())) |> 
+  cols_label(Name_ESG = "Name",
+             Year_Founded = "Year Founded") |> 
+  cols_width(No ~ px(50),
+             Name_ESG ~ px(200),
+             Headquarters ~ px(150),
+             `Year_Founded` ~ px(120)) |> 
+  tab_style(style = cell_text(align = "center"),
+            locations = cells_body(columns = c(No, `Year_Founded`))) |> 
+  tab_style(cell_fill(color = "white"),
+            locations = cells_body()) |> 
+  cols_align(align = "left",
+             columns = everything())
+
+# Make the table interactive
+gt_table <- gt_table |> opt_interactive()
+
+# Custom CSS to center the entire table
+custom_css <- "
+.container {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+.gt_table {
+  margin: 0 auto;
+}
+"
+
+# Wrap the gt table in a div with the custom CSS class
+centered_table <- div(
+  class = "container",
+  style = "width: 100%; text-align: center;",
+  gt_table
+)
+
+# Render the table with the custom CSS
+htmltools::browsable(
+  tagList(
+    tags$style(custom_css),
+    centered_table
+  )
+)
+```
+
+### Reference
+
+Dimmelmeier, Andreas & Xinke (2023). *ESG Firms Dataset (ESGFiDa)*. DOI: [10.17605/OSF.IO/B7ZGD](https://osf.io/b7zgd/)
